@@ -331,13 +331,15 @@ static int __init param_init(void)
 		pr_err("param_ram_buffer_map failred\n");
 		return -1;
 	}
+
+#ifdef CONFIG_DEBUG_PARAM_DUMP
 	mutex_init(&param_ram_zone.mutex);
 	for (i = 0; i < NUM_PARAM_PLAINTEXT_SEGMENT; i++) {
-		break;//do not dump param
 		printk("===dump chunk %d===\n", i);
 		print_hex_dump (KERN_ERR, "",DUMP_PREFIX_OFFSET,16, 4,
 		    param_ram_zone.buffer +1024*i, default_param_data_dump_size,1);
 	}
+#endif
 
 	param_init_done= 1;
 
