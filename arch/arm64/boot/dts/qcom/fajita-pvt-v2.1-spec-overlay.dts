@@ -31,7 +31,5 @@
 	qcom,msm-id = <321 0x20001>;
 	qcom,board-id = <8 0 18801 44>;
 	oem,project-id = <18801>;
-	oem,hw-id = <45>;
-	oem,project-id = <18801>;
 	oem,hw-id = <44>;
 };
