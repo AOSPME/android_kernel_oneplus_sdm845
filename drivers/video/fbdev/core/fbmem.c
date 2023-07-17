@@ -32,6 +32,7 @@
 #include <linux/device.h>
 #include <linux/efi.h>
 #include <linux/fb.h>
+#include <linux/overflow.h>
 
 #include <asm/fb.h>
 
@@ -981,6 +982,7 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 	if ((var->activate & FB_ACTIVATE_FORCE) ||
 	    memcmp(&info->var, var, sizeof(struct fb_var_screeninfo))) {
 		u32 activate = var->activate;
+		u32 unused;
 
 		/* When using FOURCC mode, make sure the red, green, blue and
 		 * transp fields are set to 0.
@@ -1000,6 +1002,11 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 			*var = info->var;
 			goto done;
 		}
+
+		/* Too huge resolution causes multiplication overflow. */
+		if (check_mul_overflow(var->xres, var->yres, &unused) ||
+		    check_mul_overflow(var->xres_virtual, var->yres_virtual, &unused))
+			return -EINVAL;
 
 		ret = info->fbops->fb_check_var(var, info);
 
