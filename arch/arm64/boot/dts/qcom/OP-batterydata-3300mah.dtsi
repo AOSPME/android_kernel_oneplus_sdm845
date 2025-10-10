@@ -16,7 +16,7 @@ qcom,OP_3300mah {
 	qcom,fastchg-current-ma = <3000>;
 	qcom,batt-id-kohm = <200>;
 	qcom,battery-beta = <3450>;
-	qcom,battery-type = "OP_3300mah";
+	qcom,battery-type = <3300000>;
 	qcom,checksum = <0xE06B>;
 	qcom,gui-version = "PMI8998GUI - 0.0.0.82";
 	qcom,fg-profile-data = [
