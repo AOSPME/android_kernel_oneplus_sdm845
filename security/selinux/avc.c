@@ -736,6 +736,82 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
 	}
 }
 
+/**
+ * avc_suppress_root_audit - Suppress audit events that expose root-related
+ * SELinux contexts or paths to untrusted apps via the auditd side channel.
+ *
+ * Filtering happens before audit_log_start() so no partial audit record
+ * is created. SELinux enforcement is fully preserved; only logging is
+ * suppressed for the listed context types and paths.
+ *
+ * The cheap path-name check runs first to avoid unnecessary memory
+ * allocations from security_sid_to_context() on the common case.
+ *
+ * Returns true if the audit event should be suppressed.
+ */
+static bool avc_suppress_root_audit(u32 ssid, u32 tsid,
+				    struct common_audit_data *ad)
+{
+	char *context = NULL;
+	u32 context_len = 0;
+	bool suppress = false;
+	const char *name = NULL;
+
+	/* 1. Fast path: check dentry name before any memory allocation.
+	 * Covers /data/adb and known root-related directory names.
+	 */
+	if (ad) {
+		switch (ad->type) {
+		case LSM_AUDIT_DATA_PATH:
+			if (ad->u.path.dentry)
+				name = ad->u.path.dentry->d_name.name;
+			break;
+		case LSM_AUDIT_DATA_FILE:
+			if (ad->u.file && ad->u.file->f_path.dentry)
+				name = ad->u.file->f_path.dentry->d_name.name;
+			break;
+		case LSM_AUDIT_DATA_DENTRY:
+			if (ad->u.dentry)
+				name = ad->u.dentry->d_name.name;
+			break;
+		}
+		/* Exact match to avoid false positives (adbd, libadb.so, etc.) */
+		if (name &&
+		    (strcmp(name, "adb") == 0 ||
+		     strcmp(name, "magisk") == 0 ||
+		     strcmp(name, "zygisk") == 0))
+			return true;
+	}
+
+	/* 2. Slow path: SELinux context string checks (involve kmalloc). */
+
+	/* Check target context (tsid) */
+	if (security_sid_to_context(tsid, &context, &context_len) == 0) {
+		if (strstr(context, ":magisk:") ||
+		    strstr(context, ":magisk_file") ||
+		    strstr(context, ":su_file") ||
+		    strstr(context, ":zygisk") ||
+		    strstr(context, ":ksu_file"))
+			suppress = true;
+		kfree(context);
+		context = NULL;
+	}
+
+	/* Check source context (ssid) only if not already suppressing */
+	if (!suppress &&
+	    security_sid_to_context(ssid, &context, &context_len) == 0) {
+		if (strstr(context, ":magisk:") ||
+		    strstr(context, ":magisk_file") ||
+		    strstr(context, ":su_file") ||
+		    strstr(context, ":zygisk") ||
+		    strstr(context, ":ksu_file"))
+			suppress = true;
+		kfree(context);
+	}
+
+	return suppress;
+}
+
 /* This is the slow part of avc audit with big stack footprint */
 noinline int slow_avc_audit(u32 ssid, u32 tsid, u16 tclass,
 		u32 requested, u32 audited, u32 denied, int result,
@@ -770,6 +846,15 @@ noinline int slow_avc_audit(u32 ssid, u32 tsid, u16 tclass,
 	sad.result = result;
 
 	a->selinux_audit_data = &sad;
+
+	/*
+	 * Suppress audit events that would expose root-related SELinux contexts
+	 * or paths to untrusted apps via the auditd side channel (AVC audit leak).
+	 * This check runs before audit_log_start() to ensure no partial record
+	 * is written to the audit buffer.
+	 */
+	if (avc_suppress_root_audit(ssid, tsid, a))
+		return 0;
 
 	common_lsm_audit(a, avc_audit_pre_callback, avc_audit_post_callback);
 	return 0;
